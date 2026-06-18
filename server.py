@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import secrets
 import time
@@ -195,21 +196,29 @@ def gerar_qr_svg(url: str, cor: str = "#003b71", fundo: str = "#ffffff") -> str:
 # --------------------------------------------------------------------------- #
 @dataclass
 class Player:
-    pid: str
+    pid: str                       # também é o token de sessão (reconexão)
     nickname: str
-    ws: WebSocket
+    ws: Optional[WebSocket] = None
+    connected: bool = True
     score: int = 0
     streak: int = 0  # acertos seguidos
     # estado da pergunta corrente
     answer_index: Optional[int] = None
     answer_time: Optional[float] = None
+    # tarefa que remove o jogador se ele não reconectar dentro da carência
+    _drop_task: Optional[asyncio.Task] = field(default=None, repr=False)
+
+
+# tempo (s) que um jogador desconectado é mantido para permitir reconexão sem
+# perder a pontuação. Celulares caem o tempo todo (tela bloqueada, troca de rede).
+RECONNECT_GRACE = 90
 
 
 # --------------------------------------------------------------------------- #
 # Estado do jogo (uma sala global — suficiente para uma turma/evento)
 # --------------------------------------------------------------------------- #
 class Game:
-    # fases: lobby -> question -> reveal -> ... -> finished
+    # fases: lobby -> starting -> question -> reveal -> ... -> finished
     def __init__(self) -> None:
         self.quiz = carregar_quiz()
         self.pin = f"{secrets.randbelow(900000) + 100000}"
@@ -221,22 +230,38 @@ class Game:
         self.deadline: float = 0.0
         self._timer_task: Optional[asyncio.Task] = None
         self._lock = asyncio.Lock()
+        # últimos payloads enviados ao host — reenviados quando o host reconecta
+        self.last_reveal_payload: Optional[dict] = None
+        self.last_game_over_payload: Optional[dict] = None
 
     # ---- utilidades de envio -------------------------------------------- #
-    async def _safe_send(self, ws: WebSocket, payload: dict) -> bool:
+    async def _safe_send(self, ws: Optional[WebSocket], payload: dict) -> bool:
+        if ws is None:
+            return False
         try:
             await ws.send_text(json.dumps(payload, ensure_ascii=False))
             return True
         except Exception:
             return False
 
+    async def _send_jobs(self, jobs: list[tuple[Optional[WebSocket], dict]]) -> None:
+        """Dispara vários envios concorrentemente (fora do lock)."""
+        if jobs:
+            await asyncio.gather(
+                *(self._safe_send(ws, pl) for ws, pl in jobs),
+                return_exceptions=True,
+            )
+
+    def _connected_players(self) -> list[Player]:
+        return [p for p in self.players.values() if p.connected]
+
     async def broadcast_players(self, payload: dict) -> None:
-        if not self.players:
-            return
-        await asyncio.gather(
-            *(self._safe_send(p.ws, payload) for p in list(self.players.values())),
-            return_exceptions=True,
-        )
+        targets = [p.ws for p in self.players.values() if p.connected and p.ws]
+        if targets:
+            await asyncio.gather(
+                *(self._safe_send(ws, payload) for ws in targets),
+                return_exceptions=True,
+            )
 
     async def broadcast_hosts(self, payload: dict) -> None:
         if not self.hosts:
@@ -248,12 +273,13 @@ class Game:
 
     # ---- lobby ----------------------------------------------------------- #
     def lobby_payload(self) -> dict:
-        nomes = [p.nickname for p in self.players.values()]
+        conectados = self._connected_players()
+        nomes = [p.nickname for p in conectados]
         return {
             "type": "lobby",
             "pin": self.pin,
             "titulo": self.quiz.get("titulo", "Quiz"),
-            "count": len(self.players),
+            "count": len(conectados),
             "players": nomes[-60:],  # mostra os últimos que entraram
             "total_perguntas": len(self.quiz["perguntas"]),
         }
@@ -271,58 +297,102 @@ class Game:
             for i, p in enumerate(ordenado)
         ]
 
+    def _purge_disconnected(self) -> None:
+        """Remove jogadores desconectados (chamar dentro do lock)."""
+        for pid in [pid for pid, p in self.players.items() if not p.connected]:
+            t = self.players[pid]._drop_task
+            if t and not t.done():
+                t.cancel()
+            del self.players[pid]
+
     # ---- ciclo de pergunta ---------------------------------------------- #
     async def start(self) -> None:
         async with self._lock:
             if self.phase not in ("lobby", "finished"):
                 return
-            if not self.players:
+            if not self._connected_players():
                 await self.broadcast_hosts(
                     {"type": "info", "message": "Nenhum jogador conectado ainda."}
                 )
                 return
+            # quem não está conectado não entra na nova partida
+            self._purge_disconnected()
             for p in self.players.values():
                 p.score = 0
                 p.streak = 0
+                p.answer_index = None
+                p.answer_time = None
             self.current = -1
+            # fase intermediária bloqueia start/next/skip concorrentes
+            self.phase = "starting"
         await self.next_question()
 
     async def next_question(self) -> None:
+        finish_host: Optional[dict] = None
+        finish_jobs: list[tuple[Optional[WebSocket], dict]] = []
+        q_host: Optional[dict] = None
+        q_players: Optional[dict] = None
+        timer_tempo = 0
         async with self._lock:
+            if self.phase not in ("starting", "reveal"):
+                return
             self._cancel_timer()
             self.current += 1
             if self.current >= len(self.quiz["perguntas"]):
-                await self._finish()
-                return
-
-            q = self.quiz["perguntas"][self.current]
-            tempo = int(q.get("tempo", self.quiz.get("tempo_padrao", 20)))
-            self.phase = "question"
-            self.question_start = time.monotonic()
-            self.deadline = self.question_start + tempo
-            for p in self.players.values():
-                p.answer_index = None
-                p.answer_time = None
-
-            base = {
-                "index": self.current,
-                "total": len(self.quiz["perguntas"]),
-                "tempo": tempo,
-                "pergunta": q["pergunta"],
-            }
-            # host e jogador recebem o texto das opções (jogador também lê no celular)
-            await self.broadcast_hosts(
-                {**base, "type": "question", "opcoes": q["opcoes"]}
-            )
-            await self.broadcast_players(
-                {
+                self.phase = "finished"
+                ranking = self.ranking()
+                finish_host = {
+                    "type": "game_over",
+                    "podium": ranking[:3],
+                    "ranking": ranking,
+                }
+                self.last_game_over_payload = finish_host
+                rankmap = {e["pid"]: e for e in ranking}
+                finish_jobs = [
+                    (
+                        p.ws,
+                        {
+                            "type": "game_over",
+                            "rank": rankmap[p.pid]["rank"],
+                            "score": rankmap[p.pid]["score"],
+                            "total_jogadores": len(ranking),
+                        },
+                    )
+                    for p in self.players.values()
+                    if p.connected and p.ws and p.pid in rankmap
+                ]
+            else:
+                q = self.quiz["perguntas"][self.current]
+                tempo = int(q.get("tempo", self.quiz.get("tempo_padrao", 20)))
+                self.phase = "question"
+                self.question_start = time.monotonic()
+                self.deadline = self.question_start + tempo
+                for p in self.players.values():
+                    p.answer_index = None
+                    p.answer_time = None
+                base = {
+                    "index": self.current,
+                    "total": len(self.quiz["perguntas"]),
+                    "tempo": tempo,
+                    "pergunta": q["pergunta"],
+                }
+                q_host = {**base, "type": "question", "opcoes": q["opcoes"]}
+                q_players = {
                     **base,
                     "type": "question",
                     "opcoes": q["opcoes"],
                     "n_opcoes": len(q["opcoes"]),
                 }
-            )
-            self._timer_task = asyncio.create_task(self._question_timer(tempo))
+                timer_tempo = tempo
+
+        # ---- envios fora do lock ----
+        if finish_host is not None:
+            await self._send_jobs(finish_jobs)
+            await self.broadcast_hosts(finish_host)
+            return
+        await self.broadcast_hosts(q_host)
+        await self.broadcast_players(q_players)
+        self._timer_task = asyncio.create_task(self._question_timer(timer_tempo))
 
     async def _question_timer(self, tempo: int) -> None:
         try:
@@ -336,14 +406,9 @@ class Game:
             self._timer_task.cancel()
         self._timer_task = None
 
-    async def _maybe_reveal_early(self) -> None:
-        # se todos responderam, revela imediatamente
-        if self.phase != "question" or not self.players:
-            return
-        if all(p.answer_index is not None for p in self.players.values()):
-            await self.reveal()
-
     async def reveal(self) -> None:
+        jobs: list[tuple[Optional[WebSocket], dict]] = []
+        host_payload: Optional[dict] = None
         async with self._lock:
             if self.phase != "question":
                 return
@@ -358,7 +423,7 @@ class Game:
             for p in self.players.values():
                 pontos = 0
                 acertou = p.answer_index == correta
-                if p.answer_index is not None:
+                if p.answer_index is not None and 0 <= p.answer_index < len(counts):
                     counts[p.answer_index] += 1
                 if acertou:
                     elapsed = max(0.0, (p.answer_time or self.deadline) - self.question_start)
@@ -369,63 +434,54 @@ class Game:
                     acertos += 1
                 else:
                     p.streak = 0
-                # feedback individual ao jogador
-                await self._safe_send(
-                    p.ws,
-                    {
-                        "type": "reveal",
-                        "correta": correta,
-                        "sua_resposta": p.answer_index,
-                        "acertou": acertou,
-                        "pontos": pontos,
-                        "total": p.score,
-                        "streak": p.streak,
-                    },
-                )
-
-            ranking = self.ranking()
-            # avisa a cada jogador sua posição
-            for entry in ranking:
-                p = self.players.get(entry["pid"])
-                if p:
-                    await self._safe_send(
-                        p.ws,
-                        {"type": "rank", "rank": entry["rank"], "total_jogadores": len(ranking)},
+                # feedback individual ao jogador (enviado fora do lock)
+                if p.connected and p.ws:
+                    jobs.append(
+                        (
+                            p.ws,
+                            {
+                                "type": "reveal",
+                                "correta": correta,
+                                "sua_resposta": p.answer_index,
+                                "acertou": acertou,
+                                "pontos": pontos,
+                                "total": p.score,
+                                "streak": p.streak,
+                            },
+                        )
                     )
 
-            # host recebe distribuição + ranking acumulado (top 12)
-            await self.broadcast_hosts(
-                {
-                    "type": "reveal",
-                    "index": self.current,
-                    "correta": correta,
-                    "opcoes": q["opcoes"],
-                    "counts": counts,
-                    "acertos": acertos,
-                    "respostas": sum(counts),
-                    "ranking": ranking[:12],
-                    "ultima": self.current + 1 >= len(self.quiz["perguntas"]),
-                }
-            )
+            ranking = self.ranking()
+            rankmap = {e["pid"]: e for e in ranking}
+            for p in self.players.values():
+                if p.connected and p.ws and p.pid in rankmap:
+                    jobs.append(
+                        (
+                            p.ws,
+                            {
+                                "type": "rank",
+                                "rank": rankmap[p.pid]["rank"],
+                                "total_jogadores": len(ranking),
+                            },
+                        )
+                    )
 
-    async def _finish(self) -> None:
-        self.phase = "finished"
-        ranking = self.ranking()
-        await self.broadcast_hosts(
-            {"type": "game_over", "podium": ranking[:3], "ranking": ranking}
-        )
-        for entry in ranking:
-            p = self.players.get(entry["pid"])
-            if p:
-                await self._safe_send(
-                    p.ws,
-                    {
-                        "type": "game_over",
-                        "rank": entry["rank"],
-                        "score": entry["score"],
-                        "total_jogadores": len(ranking),
-                    },
-                )
+            host_payload = {
+                "type": "reveal",
+                "index": self.current,
+                "correta": correta,
+                "opcoes": q["opcoes"],
+                "counts": counts,
+                "acertos": acertos,
+                "respostas": sum(counts),
+                "ranking": ranking[:12],
+                "ultima": self.current + 1 >= len(self.quiz["perguntas"]),
+            }
+            self.last_reveal_payload = host_payload
+
+        # ---- envios fora do lock (não bloqueia o jogo se um socket travar) ----
+        await self._send_jobs(jobs)
+        await self.broadcast_hosts(host_payload)
 
     async def reset(self) -> None:
         async with self._lock:
@@ -433,6 +489,9 @@ class Game:
             self.quiz = carregar_quiz()  # recarrega eventuais perguntas editadas
             self.phase = "lobby"
             self.current = -1
+            self.last_reveal_payload = None
+            self.last_game_over_payload = None
+            self._purge_disconnected()
             for p in self.players.values():
                 p.score = 0
                 p.streak = 0
@@ -453,43 +512,192 @@ class Game:
         await self.push_lobby()
         return True
 
-    # ---- entrada de jogadores ------------------------------------------- #
-    async def add_player(self, nickname: str, ws: WebSocket) -> Optional[Player]:
-        nickname = (nickname or "").strip()[:18] or "Jogador"
-        if len(self.players) >= MAX_PLAYERS:
-            return None
-        # evita apelidos duplicados
-        existentes = {p.nickname.lower() for p in self.players.values()}
-        base, n = nickname, 2
-        while nickname.lower() in existentes:
-            nickname = f"{base} {n}"
-            n += 1
-        pid = secrets.token_hex(6)
-        player = Player(pid=pid, nickname=nickname, ws=ws)
-        self.players[pid] = player
-        await self.push_lobby()
-        return player
+    # ---- snapshot de estado (reconexão) --------------------------------- #
+    async def push_state_player(self, p: Player) -> None:
+        """Envia ao jogador o estado atual da partida (usado ao (re)conectar)."""
+        payload: Optional[dict] = None
+        ack: Optional[dict] = None
+        async with self._lock:
+            ws = p.ws
+            if self.phase == "question":
+                q = self.quiz["perguntas"][self.current]
+                rem = max(0, math.ceil(self.deadline - time.monotonic()))
+                payload = {
+                    "type": "question",
+                    "index": self.current,
+                    "total": len(self.quiz["perguntas"]),
+                    "tempo": rem,
+                    "pergunta": q["pergunta"],
+                    "opcoes": q["opcoes"],
+                    "n_opcoes": len(q["opcoes"]),
+                }
+                if p.answer_index is not None:
+                    ack = {"type": "answer_ack", "index": p.answer_index}
+            elif self.phase == "finished":
+                ranking = self.ranking()
+                entry = next((e for e in ranking if e["pid"] == p.pid), None)
+                if entry:
+                    payload = {
+                        "type": "game_over",
+                        "rank": entry["rank"],
+                        "score": entry["score"],
+                        "total_jogadores": len(ranking),
+                    }
+            else:  # lobby / starting / reveal -> tela de espera
+                payload = {"type": "lobby"}
+        if payload:
+            await self._safe_send(ws, payload)
+        if ack:
+            await self._safe_send(ws, ack)
 
-    async def remove_player(self, pid: str) -> None:
-        if pid in self.players:
+    async def send_host_state(self, ws: WebSocket) -> None:
+        """Envia ao host o estado atual (usado ao (re)conectar)."""
+        extra: list[dict] = []
+        async with self._lock:
+            lobby = self.lobby_payload()
+            if self.phase == "question":
+                q = self.quiz["perguntas"][self.current]
+                rem = max(0, math.ceil(self.deadline - time.monotonic()))
+                respondidos = sum(
+                    1 for x in self.players.values() if x.answer_index is not None
+                )
+                extra = [
+                    {
+                        "type": "question",
+                        "index": self.current,
+                        "total": len(self.quiz["perguntas"]),
+                        "tempo": rem,
+                        "pergunta": q["pergunta"],
+                        "opcoes": q["opcoes"],
+                    },
+                    {
+                        "type": "answers",
+                        "respostas": respondidos,
+                        "total": len(self._connected_players()),
+                    },
+                ]
+            elif self.phase == "reveal" and self.last_reveal_payload:
+                extra = [self.last_reveal_payload]
+            elif self.phase == "finished" and self.last_game_over_payload:
+                extra = [self.last_game_over_payload]
+        await self._safe_send(ws, lobby)
+        for e in extra:
+            await self._safe_send(ws, e)
+
+    # ---- entrada / reconexão de jogadores ------------------------------- #
+    async def connect_player(
+        self, nickname: str, ws: WebSocket, pid: Optional[str] = None
+    ) -> Optional[Player]:
+        """Cria um jogador novo ou reanexa um já existente (reconexão por pid).
+
+        Retorna o Player, ou None se a sala estiver cheia. Envia 'joined',
+        o estado atual e atualiza o lobby."""
+        old_ws: Optional[WebSocket] = None
+        async with self._lock:
+            existente = self.players.get(pid) if pid else None
+            if existente is not None:
+                # reconexão: mantém pontuação e estado
+                if existente._drop_task and not existente._drop_task.done():
+                    existente._drop_task.cancel()
+                existente._drop_task = None
+                old_ws = existente.ws if existente.ws is not ws else None
+                existente.ws = ws
+                existente.connected = True
+                p = existente
+            else:
+                if len(self.players) >= MAX_PLAYERS:
+                    return None
+                nome = (nickname or "").strip()[:18] or "Jogador"
+                existentes = {x.nickname.lower() for x in self.players.values()}
+                base, n = nome, 2
+                while nome.lower() in existentes:
+                    nome = f"{base} {n}"
+                    n += 1
+                novo_pid = secrets.token_hex(6)
+                p = Player(pid=novo_pid, nickname=nome, ws=ws)
+                self.players[novo_pid] = p
+            pid_final, nome_final = p.pid, p.nickname
+            titulo = self.quiz.get("titulo", "Quiz")
+
+        # encerra socket antigo (se reconectou em outra aba/conexão)
+        if old_ws is not None:
+            try:
+                await old_ws.close()
+            except Exception:
+                pass
+        await self._safe_send(
+            ws,
+            {
+                "type": "joined",
+                "pid": pid_final,
+                "nickname": nome_final,
+                "titulo": titulo,
+            },
+        )
+        await self.push_state_player(p)
+        await self.push_lobby()
+        return p
+
+    async def detach_player(self, pid: str, ws: WebSocket) -> None:
+        """Marca o jogador como desconectado e agenda remoção após a carência.
+        Mantém a pontuação para permitir reconexão."""
+        async with self._lock:
+            p = self.players.get(pid)
+            if not p or p.ws is not ws:
+                return  # já reanexado a uma conexão nova — não mexe
+            p.connected = False
+            p.ws = None
+            if p._drop_task and not p._drop_task.done():
+                p._drop_task.cancel()
+            p._drop_task = asyncio.create_task(self._expire_player(pid))
+        await self.push_lobby()
+
+    async def _expire_player(self, pid: str) -> None:
+        try:
+            await asyncio.sleep(RECONNECT_GRACE)
+        except asyncio.CancelledError:
+            return
+        async with self._lock:
+            p = self.players.get(pid)
+            if not p or p.connected:
+                return
+            # durante uma partida, mantém o jogador (pontuação) mesmo offline;
+            # só remove de fato no lobby/fim
+            if self.phase not in ("lobby", "finished"):
+                return
             del self.players[pid]
-            await self.push_lobby()
+        await self.push_lobby()
 
     async def record_answer(self, pid: str, index: int) -> None:
-        p = self.players.get(pid)
-        if not p or self.phase != "question" or p.answer_index is not None:
-            return
-        q = self.quiz["perguntas"][self.current]
-        if not (0 <= index < len(q["opcoes"])):
-            return
-        p.answer_index = index
-        p.answer_time = time.monotonic()
-        await self._safe_send(p.ws, {"type": "answer_ack", "index": index})
-        respondidos = sum(1 for x in self.players.values() if x.answer_index is not None)
+        should_reveal = False
+        ack_ws: Optional[WebSocket] = None
+        respondidos = total_conn = 0
+        async with self._lock:
+            p = self.players.get(pid)
+            if not p or self.phase != "question" or p.answer_index is not None:
+                return
+            q = self.quiz["perguntas"][self.current]
+            if not (0 <= index < len(q["opcoes"])):
+                return
+            p.answer_index = index
+            p.answer_time = time.monotonic()
+            ack_ws = p.ws
+            respondidos = sum(
+                1 for x in self.players.values() if x.answer_index is not None
+            )
+            conectados = self._connected_players()
+            total_conn = len(conectados)
+            # revela cedo só quando TODOS os conectados responderam
+            should_reveal = bool(conectados) and all(
+                x.answer_index is not None for x in conectados
+            )
+
+        await self._safe_send(ack_ws, {"type": "answer_ack", "index": index})
         await self.broadcast_hosts(
-            {"type": "answers", "respostas": respondidos, "total": len(self.players)}
+            {"type": "answers", "respostas": respondidos, "total": total_conn}
         )
-        await self._maybe_reveal_early()
+        if should_reveal:
+            await self.reveal()
 
 
 game = Game()
@@ -563,7 +771,7 @@ async def admin_put_questions(
 async def ws_host(ws: WebSocket):
     await ws.accept()
     game.hosts.add(ws)
-    await game._safe_send(ws, game.lobby_payload())
+    await game.send_host_state(ws)
     try:
         while True:
             raw = await ws.receive_text()
@@ -613,7 +821,9 @@ async def ws_play(ws: WebSocket):
             action = msg.get("type")
 
             if action == "join" and player is None:
-                player = await game.add_player(msg.get("nickname", ""), ws)
+                player = await game.connect_player(
+                    msg.get("nickname", ""), ws, msg.get("pid")
+                )
                 if player is None:
                     await game._safe_send(
                         ws,
@@ -621,24 +831,19 @@ async def ws_play(ws: WebSocket):
                     )
                     await ws.close()
                     return
-                await game._safe_send(
-                    ws,
-                    {
-                        "type": "joined",
-                        "pid": player.pid,
-                        "nickname": player.nickname,
-                        "titulo": game.quiz.get("titulo", "Quiz"),
-                    },
-                )
             elif action == "answer" and player is not None:
-                await game.record_answer(player.pid, int(msg.get("index", -1)))
+                try:
+                    index = int(msg.get("index", -1))
+                except (TypeError, ValueError):
+                    continue
+                await game.record_answer(player.pid, index)
     except WebSocketDisconnect:
         pass
     except Exception:
         pass
     finally:
         if player is not None:
-            await game.remove_player(player.pid)
+            await game.detach_player(player.pid, ws)
 
 
 # arquivos estáticos auxiliares (se houver)

@@ -14,30 +14,8 @@ services:
     build: .
     restart: unless-stopped
     environment:
-      # senha do /admin (padrão Wand123 se não definir no .env)
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Wand123}
     volumes:
-      # persiste as perguntas editadas pelo /admin entre reinícios
       - ./questions.json:/app/questions.json
-    expose:
-      - "8000"
-    # ATENÇÃO: estado em memória — mantenha sempre 1 réplica.
-
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    depends_on:
-      - app
     ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      DOMAIN: ${DOMAIN:-:80}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-
-volumes:
-  caddy_data:
-  caddy_config:
+      - "127.0.0.1:12005:8000"

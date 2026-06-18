@@ -75,6 +75,17 @@ enunciado e o texto de cada resposta, não só as cores). **`game_over` ao host*
 `ranking` completo (não só top 12) — o pódio mostra top 3 + prévia top 8, e o botão
 "Ver pontuação completa" abre um modal rolável com todos os jogadores.
 
+**Reconexão (essencial p/ vários celulares).** Cada jogador recebe um `pid` que é
+gravado no `localStorage` do celular (`quiz_pid`/`quiz_nick`). Se a conexão cair (tela
+bloqueada, troca de Wi-Fi/4G), o `player.html` reconecta sozinho e reenvia `join` **com o
+mesmo `pid`** — o servidor reanexa o jogador **mantendo a pontuação** em vez de criar um
+jogador novo. No servidor, ao desconectar, o jogador é marcado `connected=False` e só é
+removido após `RECONNECT_GRACE = 90s` (e apenas no `lobby`/fim; durante a partida o
+placar é preservado mesmo offline). Ao (re)conectar, o servidor envia um *snapshot* do
+estado atual (`push_state_player` ao jogador, `send_host_state` ao host) — pergunta com
+tempo restante, último `reveal`/`game_over`, etc. O host também reconecta sozinho
+(`onclose → connect`) e recupera o estado.
+
 ## Pontos não óbvios (importante)
 
 - **Estado em memória, sala global única.** Rode com **um único processo** uvicorn. Não

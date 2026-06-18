@@ -179,7 +179,11 @@
 <script>
 const SHAPES = ["▲","◆","●","■"];
 const $ = s => document.querySelector(s);
-let ws, pid=null, answered=false, timerInt=null;
+// pid e nick são guardados para reconectar sem perder a pontuação se o
+// celular cair (tela bloqueada, troca de Wi-Fi/4G).
+let ws, pid=localStorage.getItem('quiz_pid')||null,
+    nick=localStorage.getItem('quiz_nick')||null,
+    answered=false, timerInt=null, reconnTimer=null, joined=false;
 
 function show(id){
   document.querySelectorAll('.screen').forEach(e=>e.classList.remove('on'));
@@ -193,22 +197,31 @@ function toast(msg){
 function connect(){
   const proto = location.protocol==='https:'?'wss':'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws/play`);
-  ws.onopen = ()=>{ if($('#nick').dataset.sent) doJoin(); };
-  ws.onclose = ()=>{ toast('Conexão perdida. Recarregue a página.'); };
+  ws.onopen = ()=>{ if(nick) sendJoin(); };   // (re)entra automaticamente
+  ws.onclose = ()=>{
+    if(joined) toast('Reconectando…');
+    clearTimeout(reconnTimer);
+    reconnTimer = setTimeout(connect, 1500);   // reconexão automática
+  };
   ws.onmessage = ev => handle(JSON.parse(ev.data));
 }
 
-function doJoin(){
-  const nick = $('#nick').value.trim();
-  if(!nick){ $('#nick').focus(); return; }
-  $('#nick').dataset.sent = "1";
-  if(ws && ws.readyState===1){
-    ws.send(JSON.stringify({type:'join', nickname:nick}));
-  }
+function sendJoin(){
+  if(!ws || ws.readyState!==1) return;
+  ws.send(JSON.stringify({type:'join', nickname:nick||'', pid:pid||undefined}));
 }
 
-$('#btn-join').onclick = ()=>{ if(!ws||ws.readyState!==1){connect();} doJoin(); };
+$('#btn-join').onclick = ()=>{
+  const v = $('#nick').value.trim();
+  if(!v){ $('#nick').focus(); return; }
+  nick = v; localStorage.setItem('quiz_nick', nick);
+  if(!ws || ws.readyState!==1){ connect(); } else { sendJoin(); }
+};
 $('#nick').addEventListener('keydown', e=>{ if(e.key==='Enter') $('#btn-join').click(); });
+
+// se já temos identidade (reload no meio do jogo), pré-preenche e conecta já
+if(nick) $('#nick').value = nick;
+connect();
 
 function buildOptions(opcoes){
   const grid=$('#opts'); grid.innerHTML='';
@@ -250,7 +263,9 @@ function startTimer(sec){
 function handle(m){
   switch(m.type){
     case 'joined':
-      pid=m.pid;
+      pid=m.pid; nick=m.nickname; joined=true;
+      localStorage.setItem('quiz_pid', pid);
+      localStorage.setItem('quiz_nick', nick);
       $('#wait-name').textContent=m.nickname;
       show('#s-wait');
       break;
@@ -267,6 +282,7 @@ function handle(m){
       show('#s-question');
       break;
     case 'answer_ack':
+      answered=true;
       show('#s-answered');
       break;
     case 'reveal':
