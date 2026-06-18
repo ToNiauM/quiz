@@ -69,12 +69,30 @@
       "tempo": 20
     },
     {
-      "pergunta": "Bla bla bla",
+      "pergunta": "O sábio realmente sabia assobiar?",
       "opcoes": [
-        "Bla",
-        "Bli",
-        "Ble",
-        "Blo"
+        "Sabia",
+        "Sabiá",
+        "Soube",
+        "Desaprendeu"
+      ],
+      "correta": 0
+    },
+    {
+      "pergunta": "Isso é um teste? Qual resposta correta para esse teste?",
+      "opcoes": [
+        "Não tem resposta correta",
+        "Tem resposta correta",
+        "Não tem resposta errada",
+        "Tem resposta errada"
+      ],
+      "correta": 0
+    },
+    {
+      "pergunta": "Quero dormir?",
+      "opcoes": [
+        "Sim",
+        "Não"
       ],
       "correta": 0
     }

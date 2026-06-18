@@ -402,9 +402,14 @@ class Game:
             pass
 
     def _cancel_timer(self) -> None:
-        if self._timer_task and not self._timer_task.done():
-            self._timer_task.cancel()
+        # Nunca cancela a própria tarefa em execução: quando o timeout natural
+        # dispara reveal() (que chama _cancel_timer), o _timer_task é justamente
+        # esta tarefa. Cancelá-la abortaria o reveal no primeiro await seguinte
+        # (o envio ao host/jogadores), travando o jogo na pergunta.
+        t = self._timer_task
         self._timer_task = None
+        if t and t is not asyncio.current_task() and not t.done():
+            t.cancel()
 
     async def reveal(self) -> None:
         jobs: list[tuple[Optional[WebSocket], dict]] = []
