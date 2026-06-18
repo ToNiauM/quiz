@@ -200,6 +200,7 @@
       <div class="podium" id="podium"></div>
       <div class="rows" id="rows-final" style="margin-top:34px;max-width:640px"></div>
       <button class="btn" id="btn-fulllist" style="margin-top:26px">📋 Ver pontuação completa</button>
+      <button class="btn ghost" id="btn-download" style="margin-top:14px">⬇️ Baixar lista (todos os participantes)</button>
     </section>
   </main>
 </div>
@@ -254,6 +255,24 @@ $('#btn-fulllist').onclick=()=>{
   rankRows($('#fulllist-rows'), fullRanking);
   $('#fulllist-modal').classList.add('on');
 };
+// baixar lista de todos os participantes (ordenada da maior nota para a menor)
+$('#btn-download').onclick=()=>{
+  if(!fullRanking.length){ alert('Nenhum participante para listar.'); return; }
+  const linhas = fullRanking.map(r => `${r.rank};${r.nickname};${r.score}`);
+  const conteudo = 'Posição;Participante;Pontos\n' + linhas.join('\n') + '\n';
+  // BOM p/ acentuação correta ao abrir no Excel
+  const blob = new Blob(['﻿' + conteudo], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const data = new Date().toISOString().slice(0,10);
+  a.href = url;
+  a.download = `pontuacao-quiz-cfc-${data}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
 $('#btn-fulllist-close').onclick=()=>$('#fulllist-modal').classList.remove('on');
 $('#fulllist-modal').onclick=e=>{ if(e.target.id==='fulllist-modal') $('#fulllist-modal').classList.remove('on'); };
 
