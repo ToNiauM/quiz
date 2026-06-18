@@ -255,22 +255,53 @@ $('#btn-fulllist').onclick=()=>{
   rankRows($('#fulllist-rows'), fullRanking);
   $('#fulllist-modal').classList.add('on');
 };
-// baixar lista de todos os participantes (ordenada da maior nota para a menor)
+// gera a lista de todos os participantes (ordenada da maior nota para a menor)
+// abre uma página pronta p/ imprimir/salvar + oferece download CSV — assim
+// nunca falha silenciosamente, mesmo via túnel/HTTPS.
+function escHtml(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
 $('#btn-download').onclick=()=>{
-  if(!fullRanking.length){ alert('Nenhum participante para listar.'); return; }
-  const linhas = fullRanking.map(r => `${r.rank};${r.nickname};${r.score}`);
-  const conteudo = 'Posição;Participante;Pontos\n' + linhas.join('\n') + '\n';
-  // BOM p/ acentuação correta ao abrir no Excel
-  const blob = new Blob(['﻿' + conteudo], {type:'text/csv;charset=utf-8;'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
+  // garante o ranking ordenado da maior p/ menor nota (fallback de segurança)
+  const lista = [...fullRanking].sort((a,b)=> (b.score||0) - (a.score||0))
+                                .map((r,i)=> ({ rank:i+1, nickname:r.nickname, score:r.score||0 }));
+  if(!lista.length){ alert('Nenhum participante para listar.'); return; }
+
   const data = new Date().toISOString().slice(0,10);
-  a.href = url;
-  a.download = `pontuacao-quiz-cfc-${data}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+
+  // 1) CSV para Excel (separador ';' e BOM p/ acentuação)
+  const csv = '﻿' + 'Posição;Participante;Pontos\n' +
+              lista.map(r => `${r.rank};${r.nickname};${r.score}`).join('\n') + '\n';
+  const url = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8;'}));
+  const a = document.createElement('a');
+  a.href = url; a.download = `pontuacao-quiz-cfc-${data}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+
+  // 2) janela visível pronta p/ imprimir/salvar em PDF
+  const linhas = lista.map(r =>
+    `<tr><td class="p">${r.rank}</td><td>${escHtml(r.nickname)}</td><td class="s">${r.score} pts</td></tr>`
+  ).join('');
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+    <title>Pontuação Quiz CFC — ${data}</title>
+    <style>
+      body{font-family:Arial,Helvetica,sans-serif;margin:32px;color:#012a52;}
+      h1{font-size:22px;margin:0 0 4px;} .sub{color:#555;margin:0 0 20px;}
+      table{border-collapse:collapse;width:100%;max-width:640px;}
+      th,td{padding:8px 12px;border-bottom:1px solid #ddd;text-align:left;}
+      th{background:#012a52;color:#fff;} .p{width:60px;text-align:center;font-weight:bold;}
+      .s{text-align:right;white-space:nowrap;font-weight:bold;}
+      tr:nth-child(even) td{background:#f4f7fb;}
+      @media print{button{display:none;}}
+      button{margin-top:20px;padding:10px 18px;font-size:15px;cursor:pointer;}
+    </style></head><body>
+    <h1>🏆 Pontuação completa — Quiz CFC</h1>
+    <p class="sub">${lista.length} participantes • ${data}</p>
+    <table><thead><tr><th class="p">#</th><th>Participante</th><th class="s">Pontos</th></tr></thead>
+    <tbody>${linhas}</tbody></table>
+    <button onclick="window.print()">🖨️ Imprimir / Salvar PDF</button>
+    </body></html>`;
+  const win = window.open('', '_blank');
+  if(win){ win.document.open(); win.document.write(html); win.document.close(); }
 };
 
 $('#btn-fulllist-close').onclick=()=>$('#fulllist-modal').classList.remove('on');
