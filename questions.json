@@ -1,0 +1,82 @@
+{
+  "titulo": "Quiz da COFIS",
+  "tempo_padrao": 20,
+  "perguntas": [
+    {
+      "pergunta": "Qual demonstração contábil apresenta a posição patrimonial e financeira da entidade em determinada data?",
+      "opcoes": [
+        "Demonstração do Resultado (DRE)",
+        "Balanço Patrimonial (BP)",
+        "Demonstração dos Fluxos de Caixa (DFC)",
+        "Demonstração de Valor Adicionado (DVA)"
+      ],
+      "correta": 1,
+      "tempo": 20
+    },
+    {
+      "pergunta": "Na equação básica da contabilidade, o Ativo é igual a:",
+      "opcoes": [
+        "Passivo - Patrimônio Líquido",
+        "Receitas - Despesas",
+        "Passivo + Patrimônio Líquido",
+        "Patrimônio Líquido - Passivo"
+      ],
+      "correta": 2,
+      "tempo": 20
+    },
+    {
+      "pergunta": "O regime contábil que reconhece receitas e despesas no período de sua ocorrência, independentemente de recebimento ou pagamento, é o regime de:",
+      "opcoes": [
+        "Caixa",
+        "Competência",
+        "Provisão",
+        "Alienação"
+      ],
+      "correta": 1,
+      "tempo": 20
+    },
+    {
+      "pergunta": "Qual órgão edita as Normas Brasileiras de Contabilidade (NBC) e regula a profissão contábil no Brasil?",
+      "opcoes": [
+        "CVM",
+        "Receita Federal",
+        "CFC",
+        "IBRACON"
+      ],
+      "correta": 2,
+      "tempo": 15
+    },
+    {
+      "pergunta": "Uma conta de natureza credora que reduz o ativo (ex.: depreciação acumulada) é classificada como conta:",
+      "opcoes": [
+        "Retificadora do ativo",
+        "De resultado",
+        "Patrimonial de passivo",
+        "De compensação"
+      ],
+      "correta": 0,
+      "tempo": 20
+    },
+    {
+      "pergunta": "O princípio que determina registrar os ativos pelo valor original da transação é o do:",
+      "opcoes": [
+        "Valor justo",
+        "Custo histórico como base de valor",
+        "Realização da receita",
+        "Conservadorismo extremo"
+      ],
+      "correta": 1,
+      "tempo": 20
+    },
+    {
+      "pergunta": "Bla bla bla",
+      "opcoes": [
+        "Bla",
+        "Bli",
+        "Ble",
+        "Blo"
+      ],
+      "correta": 0
+    }
+  ]
+}

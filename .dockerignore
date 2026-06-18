@@ -1,0 +1,28 @@
+# Não envie nada disso para a imagem
+.git/
+.gitignore
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.log
+
+# Arquivos de deploy/doc não usados em runtime
+DEPLOY.md
+README.md
+CLAUDE.md
+deploy/
+Dockerfile
+.dockerignore
+docker-compose.yml
+Caddyfile
+
+# Artefatos de dev
+host_lobby.png
+shot.py
+test_e2e.py
+iniciar.py
+.claude/
+caddy_data/
+caddy_config/

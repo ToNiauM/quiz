@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Quiz CFC — Administração de Perguntas</title>
+<style>
+  :root{
+    --azul:#003b71; --azul2:#0a5aa8; --verde:#00995d; --verde2:#00c178;
+    --dourado:#f2a900; --vermelho:#e23b50; --branco:#fff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{
+    font-family:"Segoe UI",system-ui,Arial,sans-serif;color:#fff;min-height:100vh;
+    background:radial-gradient(1200px 600px at 20% -10%,#0a5aa8,transparent),
+               radial-gradient(1000px 700px at 100% 120%,#00995d,transparent),
+               linear-gradient(160deg,#022a52,#003b71);
+    background-attachment:fixed;padding-bottom:120px;
+  }
+  header{display:flex;align-items:center;justify-content:space-between;gap:14px;
+    padding:16px 28px;background:rgba(0,0,0,.22);position:sticky;top:0;z-index:5;flex-wrap:wrap;}
+  .brand{display:flex;align-items:center;gap:14px;font-weight:900;font-size:22px;}
+  .mark{width:48px;height:48px;border-radius:14px;background:#fff;display:grid;place-items:center;
+    color:var(--azul);font-weight:900;font-size:20px;letter-spacing:-1px;}
+  .mark span{color:var(--verde);}
+  .logo-badge{display:inline-flex;align-items:center;background:#fff;border-radius:12px;
+    padding:7px 12px;box-shadow:0 4px 14px rgba(0,0,0,.25);}
+  .logo-badge img{height:38px;display:block;}
+  .btn{border:none;border-radius:12px;padding:11px 20px;font-weight:800;font-size:15px;
+    cursor:pointer;color:var(--azul);background:var(--dourado);transition:transform .1s,filter .2s;}
+  .btn:hover{filter:brightness(1.07);} .btn:active{transform:scale(.96);}
+  .btn.green{background:var(--verde2);color:#012;} .btn.ghost{background:rgba(255,255,255,.16);color:#fff;}
+  .btn.danger{background:var(--vermelho);color:#fff;}
+  .btn.sm{padding:7px 12px;font-size:14px;border-radius:9px;}
+  .btn:disabled{opacity:.45;cursor:not-allowed;}
+
+  .container{max-width:920px;margin:0 auto;padding:24px 18px;}
+
+  /* LOGIN */
+  #login{max-width:420px;margin:10vh auto;background:rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,.16);border-radius:22px;padding:34px 30px;text-align:center;
+    box-shadow:0 20px 60px rgba(0,0,0,.35);}
+  #login h1{font-size:24px;margin-bottom:6px;}
+  #login p{opacity:.8;font-size:14px;margin-bottom:22px;}
+  input,textarea{font-family:inherit;font-size:15px;border-radius:10px;border:1px solid rgba(255,255,255,.2);
+    background:rgba(255,255,255,.95);color:#072;padding:11px 13px;width:100%;}
+  input:focus,textarea:focus{outline:2px solid var(--dourado);}
+  #login input{margin-bottom:16px;text-align:center;font-size:18px;letter-spacing:2px;}
+  .err{color:#ffd2d8;background:rgba(226,59,80,.25);border:1px solid var(--vermelho);
+    border-radius:10px;padding:10px 12px;font-size:14px;margin-top:14px;display:none;}
+  .err.on{display:block;}
+
+  /* META */
+  .meta{display:flex;gap:16px;flex-wrap:wrap;background:rgba(255,255,255,.07);
+    border:1px solid rgba(255,255,255,.14);border-radius:16px;padding:18px;margin-bottom:22px;}
+  .field{display:flex;flex-direction:column;gap:6px;}
+  .field label{font-size:13px;font-weight:700;opacity:.85;}
+  .field.grow{flex:1;min-width:220px;}
+  .field.small input{width:120px;}
+
+  /* CARDS DE PERGUNTA */
+  .q{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);border-radius:18px;
+    padding:18px;margin-bottom:18px;box-shadow:0 10px 30px rgba(0,0,0,.22);}
+  .q-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;}
+  .q-num{font-weight:900;font-size:18px;color:var(--dourado);}
+  .q-actions{display:flex;gap:6px;}
+  .q textarea{min-height:54px;resize:vertical;margin-bottom:4px;}
+  .counter{font-size:12px;opacity:.7;text-align:right;margin-bottom:10px;}
+  .counter.limit{color:var(--dourado);opacity:1;font-weight:700;}
+  .opcoes{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  @media(max-width:640px){.opcoes{grid-template-columns:1fr;}}
+  .op{display:flex;align-items:center;gap:9px;background:rgba(0,0,0,.18);border-radius:11px;padding:7px 10px;}
+  .op .dot{width:26px;height:26px;border-radius:8px;flex:none;}
+  .op:nth-child(1) .dot{background:var(--vermelho);}
+  .op:nth-child(2) .dot{background:var(--azul2);}
+  .op:nth-child(3) .dot{background:var(--dourado);}
+  .op:nth-child(4) .dot{background:var(--verde);}
+  .op input[type=text]{flex:1;}
+  .op .pick{display:flex;align-items:center;gap:5px;font-size:13px;font-weight:700;white-space:nowrap;cursor:pointer;}
+  .op input[type=radio]{width:18px;height:18px;accent-color:var(--verde2);cursor:pointer;}
+  .q-foot{display:flex;align-items:center;gap:18px;margin-top:12px;flex-wrap:wrap;}
+  .q-foot .field.small label{font-size:12px;}
+  .q-foot .rm-op{font-size:13px;opacity:.85;}
+
+  /* BARRA INFERIOR */
+  .bar{position:fixed;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);backdrop-filter:blur(6px);
+    padding:14px 22px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;z-index:6;}
+  .bar .status{font-size:14px;min-height:18px;}
+  .bar .status.ok{color:#bff4d6;} .bar .status.bad{color:#ffd2d8;}
+  .hidden{display:none !important;}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login">
+  <div class="brand" style="justify-content:center;margin-bottom:14px;">
+    <span class="logo-badge"><img src="/static/logo-cfc.png" alt="Conselho Federal de Contabilidade" /></span>
+  </div>
+  <h1>Administração</h1>
+  <p>Digite a senha para gerenciar as perguntas do quiz.</p>
+  <input id="senha" type="password" placeholder="Senha" autocomplete="current-password" />
+  <button class="btn green" style="width:100%;padding:13px;" onclick="entrar()">Entrar</button>
+  <div id="login-err" class="err"></div>
+</div>
+
+<!-- APP -->
+<div id="app" class="hidden">
+  <header>
+    <div class="brand"><span class="logo-badge"><img src="/static/logo-cfc.png" alt="Conselho Federal de Contabilidade" /></span> Perguntas do Quiz</div>
+    <div style="display:flex;gap:10px;">
+      <a class="btn ghost" href="/host" target="_blank">Abrir apresentador ↗</a>
+      <button class="btn ghost" onclick="sair()">Sair</button>
+    </div>
+  </header>
+
+  <div class="container">
+    <div class="meta">
+      <div class="field grow">
+        <label for="titulo">Título do quiz</label>
+        <input id="titulo" type="text" placeholder="Ex.: Quiz de Contabilidade" />
+      </div>
+      <div class="field small">
+        <label for="tempo_padrao">Tempo padrão (s)</label>
+        <input id="tempo_padrao" type="number" min="1" value="20" />
+      </div>
+    </div>
+
+    <div id="lista"></div>
+
+    <button class="btn" onclick="addPergunta()">＋ Adicionar pergunta</button>
+  </div>
+
+  <div class="bar">
+    <div id="status" class="status"></div>
+    <div style="display:flex;gap:10px;">
+      <button class="btn ghost" onclick="carregar()">Recarregar</button>
+      <button class="btn green" id="salvar" onclick="salvar()">💾 Salvar perguntas</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let SENHA = "";
+
+function headers(){ return { "Content-Type":"application/json", "X-Admin-Password": SENHA }; }
+
+async function entrar(){
+  SENHA = $("#senha").value;
+  const err = $("#login-err");
+  err.classList.remove("on");
+  try{
+    const r = await fetch("/admin/api/questions", { headers: headers() });
+    if(r.status === 401){ err.textContent = "Senha incorreta."; err.classList.add("on"); return; }
+    if(!r.ok) throw new Error("Falha ao carregar.");
+    const quiz = await r.json();
+    $("#login").classList.add("hidden");
+    $("#app").classList.remove("hidden");
+    render(quiz);
+  }catch(e){ err.textContent = "Erro de conexão com o servidor."; err.classList.add("on"); }
+}
+
+function sair(){ SENHA=""; $("#app").classList.add("hidden"); $("#login").classList.remove("hidden"); $("#senha").value=""; }
+
+async function carregar(){
+  const r = await fetch("/admin/api/questions", { headers: headers() });
+  if(r.ok){ render(await r.json()); setStatus("Recarregado do servidor.", "ok"); }
+}
+
+function setStatus(msg, kind){
+  const s = $("#status"); s.textContent = msg || "";
+  s.className = "status" + (kind ? " "+kind : "");
+}
+
+function render(quiz){
+  $("#titulo").value = quiz.titulo || "";
+  $("#tempo_padrao").value = quiz.tempo_padrao || 20;
+  $("#lista").innerHTML = "";
+  (quiz.perguntas || []).forEach(addPergunta);
+  if(!(quiz.perguntas || []).length) addPergunta();
+  setStatus("");
+}
+
+function addPergunta(q){
+  q = q || { pergunta:"", opcoes:["",""], correta:0, tempo:"" };
+  const idx = $("#lista").children.length;
+  const el = document.createElement("div");
+  el.className = "q";
+  el.innerHTML = `
+    <div class="q-head">
+      <span class="q-num">Pergunta ${idx+1}</span>
+      <div class="q-actions">
+        <button class="btn ghost sm" data-act="up" title="Subir">▲</button>
+        <button class="btn ghost sm" data-act="down" title="Descer">▼</button>
+        <button class="btn danger sm" data-act="del" title="Excluir">✕</button>
+      </div>
+    </div>
+    <textarea class="enunciado" maxlength="200" placeholder="Digite o enunciado da pergunta (até 200 caracteres)">${esc(q.pergunta||"")}</textarea>
+    <div class="counter"><span class="cval">0</span>/200 caracteres</div>
+    <div class="opcoes"></div>
+    <div class="q-foot">
+      <span class="rm-op">Marque o ◉ na opção correta.</span>
+      <button class="btn ghost sm add-op">＋ opção</button>
+      <div class="field small">
+        <label>Tempo (s) — opcional</label>
+        <input class="tempo" type="number" min="1" placeholder="usa padrão" value="${q.tempo ?? ""}" style="width:130px;">
+      </div>
+    </div>`;
+  const opcoes = el.querySelector(".opcoes");
+  (q.opcoes && q.opcoes.length ? q.opcoes : ["",""]).forEach((op,i)=> opcoes.appendChild(makeOp(op, i===q.correta)));
+  el.querySelector(".add-op").onclick = ()=>{
+    if(opcoes.children.length >= 4) return;
+    opcoes.appendChild(makeOp("", false)); reindex();
+  };
+  el.querySelectorAll(".q-actions [data-act]").forEach(b=> b.onclick = ()=> action(el, b.dataset.act));
+  const ta = el.querySelector(".enunciado"), counter = el.querySelector(".counter");
+  const upd = ()=>{
+    counter.querySelector(".cval").textContent = ta.value.length;
+    counter.classList.toggle("limit", ta.value.length >= 200);
+  };
+  ta.addEventListener("input", upd); upd();
+  $("#lista").appendChild(el);
+  reindex();
+}
+
+function makeOp(valor, correta){
+  const op = document.createElement("div");
+  op.className = "op";
+  op.innerHTML = `
+    <span class="dot"></span>
+    <input type="text" class="op-text" maxlength="100" placeholder="Texto da opção (até 100)" value="${esc(valor||"")}">
+    <label class="pick"><input type="radio" class="op-radio" ${correta?"checked":""}> certa</label>
+    <button class="btn danger sm rm" title="Remover opção">−</button>`;
+  op.querySelector(".rm").onclick = ()=>{
+    const cont = op.parentElement;
+    if(cont.children.length <= 2) return;  // mínimo 2 opções
+    op.remove(); reindex();
+  };
+  return op;
+}
+
+function action(el, act){
+  if(act === "del"){ el.remove(); reindex(); return; }
+  if(act === "up" && el.previousElementSibling) el.parentElement.insertBefore(el, el.previousElementSibling);
+  if(act === "down" && el.nextElementSibling) el.parentElement.insertBefore(el.nextElementSibling, el);
+  reindex();
+}
+
+function reindex(){
+  [...$("#lista").children].forEach((el,i)=>{
+    el.querySelector(".q-num").textContent = "Pergunta " + (i+1);
+    // garante nome de grupo único por pergunta para os radios
+    const radios = el.querySelectorAll(".op-radio");
+    radios.forEach(r => r.name = "correta-"+i);
+  });
+}
+
+function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+function coletar(){
+  const perguntas = [...$("#lista").children].map(el=>{
+    const opcoes = [...el.querySelectorAll(".op")].map(op=> op.querySelector(".op-text").value);
+    let correta = 0;
+    el.querySelectorAll(".op-radio").forEach((r,i)=>{ if(r.checked) correta = i; });
+    const t = el.querySelector(".tempo").value;
+    const q = { pergunta: el.querySelector(".enunciado").value, opcoes, correta };
+    if(t !== "" && t != null) q.tempo = Number(t);
+    return q;
+  });
+  return {
+    titulo: $("#titulo").value,
+    tempo_padrao: Number($("#tempo_padrao").value || 20),
+    perguntas
+  };
+}
+
+async function salvar(){
+  const btn = $("#salvar"); btn.disabled = true;
+  setStatus("Salvando…");
+  try{
+    const r = await fetch("/admin/api/questions", { method:"PUT", headers: headers(), body: JSON.stringify(coletar()) });
+    const data = await r.json().catch(()=>({}));
+    if(r.status === 401){ setStatus("Sessão expirada — entre novamente.", "bad"); sair(); return; }
+    if(r.status === 422){ setStatus("⚠ " + (data.detail || "Dados inválidos."), "bad"); return; }
+    if(!r.ok){ setStatus("Erro ao salvar.", "bad"); return; }
+    setStatus("✓ " + (data.mensagem || "Salvo.") + ` (${data.total_perguntas} perguntas)`, "ok");
+  }catch(e){ setStatus("Erro de conexão.", "bad"); }
+  finally{ btn.disabled = false; }
+}
+
+$("#senha").addEventListener("keydown", e=>{ if(e.key==="Enter") entrar(); });
+</script>
+</body>
+</html>

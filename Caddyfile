@@ -1,0 +1,15 @@
+# Caddy — proxy reverso com HTTPS automático para o Quiz CFC.
+#
+# O endereço do site vem da variável DOMAIN (definida no .env / compose):
+#   DOMAIN=quiz.seudominio.com.br  -> Caddy obtém certificado Let's Encrypt
+#                                     sozinho e serve em https:// (com wss://).
+#   DOMAIN=:80                     -> serve apenas em http:// no IP (sem TLS),
+#                                     útil enquanto você não tem domínio.
+#
+# O reverse_proxy do Caddy já encaminha WebSocket (Upgrade) automaticamente,
+# então /ws/host e /ws/play funcionam sem configuração extra.
+
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:8000
+}

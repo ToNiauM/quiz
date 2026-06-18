@@ -1,0 +1,5 @@
+# Normaliza finais de linha: LF no repositório (evita quebrar arquivos no Linux/VPS).
+* text=auto eol=lf
+
+# Binários — nunca normalizar.
+*.png binary

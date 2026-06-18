@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Ambiente / segredos
+.env
+*.log
+
+# Dados/volumes do Caddy (HTTPS) gerados em runtime
+caddy_data/
+caddy_config/
+
+# Artefatos de teste/dev (screenshot gerado pelo shot.py)
+host_lobby.png
+
+# Ferramentas locais do editor/Claude Code
+.claude/
+.vscode/
+.idea/
+
+# SO
+.DS_Store
+Thumbs.db

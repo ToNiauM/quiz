@@ -1,0 +1,37 @@
+# Serviço systemd para rodar o Quiz CFC sem Docker (Ubuntu/Debian).
+#
+# Instalação resumida (como root):
+#   adduser --system --group --home /opt/quiz-cfc quiz
+#   git clone SEU_REPO /opt/quiz-cfc/app && cd /opt/quiz-cfc/app
+#   python3 -m venv /opt/quiz-cfc/.venv
+#   /opt/quiz-cfc/.venv/bin/pip install -r requirements.txt
+#   chown -R quiz:quiz /opt/quiz-cfc
+#   cp deploy/quiz-cfc.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now quiz-cfc
+#
+# Veja logs com:  journalctl -u quiz-cfc -f
+
+[Unit]
+Description=Quiz CFC (FastAPI + WebSockets)
+After=network.target
+
+[Service]
+Type=simple
+User=quiz
+Group=quiz
+WorkingDirectory=/opt/quiz-cfc/app
+Environment=HOST=127.0.0.1
+Environment=PORT=8000
+# TROQUE a senha do /admin:
+Environment=ADMIN_PASSWORD=troque-esta-senha
+ExecStart=/opt/quiz-cfc/.venv/bin/uvicorn server:app --host 127.0.0.1 --port 8000 --ws-max-queue 1024 --log-level info
+Restart=on-failure
+RestartSec=3
+
+# Segurança básica
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

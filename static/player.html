@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Quiz CFC</title>
+<style>
+  :root{
+    --azul:#003b71; --azul2:#0a5aa8; --verde:#00995d; --verde2:#00c178;
+    --dourado:#f2a900; --vermelho:#e23b50; --branco:#ffffff;
+    --c1:#e23b50; --c2:#0a5aa8; --c3:#f2a900; --c4:#00995d;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    font-family:"Segoe UI",system-ui,Arial,sans-serif;color:var(--branco);
+    background:linear-gradient(150deg,#022a52,#003b71 45%,#00754a);
+    background-attachment:fixed;overflow:hidden;
+  }
+  .app{position:relative;height:100dvh;display:flex;flex-direction:column;}
+  .screen{position:absolute;inset:0;display:none;flex-direction:column;
+    align-items:center;justify-content:center;padding:22px;gap:18px;
+    animation:fade .35s ease;}
+  .screen.on{display:flex;}
+  @keyframes fade{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+  @keyframes pop{0%{transform:scale(.7);opacity:0}60%{transform:scale(1.08)}100%{transform:scale(1);opacity:1}}
+  @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+
+  .logo{display:flex;flex-direction:column;align-items:center;gap:6px;animation:float 3.5s ease-in-out infinite;}
+  .logo .mark{width:84px;height:84px;border-radius:22px;background:var(--branco);
+    display:grid;place-items:center;font-weight:900;font-size:30px;color:var(--azul);
+    box-shadow:0 14px 40px rgba(0,0,0,.35);letter-spacing:-1px;}
+  .logo .mark span{color:var(--verde);}
+  .logo h1{font-size:26px;letter-spacing:.5px;}
+  .logo p{opacity:.8;font-size:14px;}
+  .logo-badge{display:inline-flex;align-items:center;background:#fff;border-radius:16px;
+    padding:12px 18px;box-shadow:0 14px 40px rgba(0,0,0,.35);}
+  .logo-badge img{height:54px;display:block;}
+
+  .card{width:100%;max-width:420px;background:rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,.16);border-radius:22px;padding:22px;
+    backdrop-filter:blur(6px);box-shadow:0 18px 50px rgba(0,0,0,.3);}
+  input{width:100%;padding:18px;border-radius:14px;border:none;font-size:18px;
+    text-align:center;font-weight:700;color:var(--azul);outline:3px solid transparent;}
+  input:focus{outline-color:var(--dourado);}
+  .btn{width:100%;padding:18px;border:none;border-radius:14px;font-size:19px;
+    font-weight:800;cursor:pointer;color:#fff;background:var(--dourado);
+    color:var(--azul);transition:transform .1s,filter .2s;margin-top:14px;}
+  .btn:active{transform:scale(.97);}
+  .btn.green{background:var(--verde2);color:#022;}
+  .hint{font-size:13px;opacity:.75;text-align:center;margin-top:10px;}
+
+  /* aguardando */
+  .pulse{width:70px;height:70px;border-radius:50%;border:6px solid rgba(255,255,255,.25);
+    border-top-color:var(--dourado);animation:spin 1s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .me{font-size:30px;font-weight:900;animation:pop .4s ease;}
+  .sub{opacity:.85;font-size:15px;text-align:center;line-height:1.5;}
+
+  /* perguntas - grade de botões */
+  #s-question{justify-content:flex-start;padding:0;gap:0;}
+  .qhead{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;
+    align-items:center;padding:14px 100px 14px 18px;font-weight:800;font-size:15px;
+    background:rgba(0,0,0,.18);min-height:56px;}
+  /* anel de tempo destacado no canto superior direito */
+  .ptimer{position:absolute;top:8px;right:12px;width:82px;height:82px;border-radius:50%;
+    display:grid;place-items:center;z-index:3;
+    background:radial-gradient(circle at 50% 40%,rgba(0,0,0,.5),rgba(0,0,0,.32));
+    box-shadow:0 0 0 3px var(--dourado),0 8px 22px rgba(242,169,0,.5),inset 0 0 16px rgba(0,0,0,.4);}
+  .ptimer svg{position:absolute;top:4px;left:4px;transform:rotate(-90deg);}
+  .ptimer-num{position:absolute;inset:0;top:8px;display:grid;place-items:center;
+    font-size:28px;font-weight:900;color:var(--dourado);text-shadow:0 2px 8px rgba(0,0,0,.5);}
+  .ptimer-lbl{position:absolute;top:12px;left:0;right:0;text-align:center;font-size:9px;
+    font-weight:900;letter-spacing:1px;opacity:.8;}
+  .ptimer.low{box-shadow:0 0 0 3px var(--vermelho),0 8px 22px rgba(226,59,80,.6),inset 0 0 16px rgba(0,0,0,.4);
+    animation:tpulse .7s ease-in-out infinite;}
+  .ptimer.low .ptimer-num{color:#fff;}
+  @keyframes tpulse{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+  /* enunciado da pergunta na tela do jogador */
+  .qtext-p{width:100%;max-width:560px;margin:102px auto 0;padding:0 20px;
+    font-size:clamp(19px,5.4vw,26px);font-weight:900;line-height:1.3;text-align:center;
+    text-shadow:0 2px 10px rgba(0,0,0,.35);}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;width:100%;max-width:480px;
+    height:50vh;margin:16px auto 0;padding:0 18px 18px;}
+  .opt{border:none;border-radius:18px;cursor:pointer;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:8px;color:#fff;font-weight:900;
+    padding:12px 10px;text-align:center;
+    box-shadow:0 10px 24px rgba(0,0,0,.28);transition:transform .12s;animation:pop .35s ease backwards;}
+  .opt:active{transform:scale(.95);}
+  .opt:nth-child(1){background:var(--c1);animation-delay:.02s;}
+  .opt:nth-child(2){background:var(--c2);animation-delay:.08s;}
+  .opt:nth-child(3){background:var(--c3);animation-delay:.14s;}
+  .opt:nth-child(4){background:var(--c4);animation-delay:.20s;}
+  .opt .shape{font-size:32px;line-height:1;}
+  .opt .otext{font-size:clamp(15px,4.3vw,21px);font-weight:800;line-height:1.2;
+    overflow-wrap:anywhere;}
+  .opt.dim{opacity:.25;transform:scale(.92);}
+
+  .big{font-size:80px;animation:pop .45s ease;}
+  .verdict{font-size:34px;font-weight:900;text-align:center;}
+  .pts{font-size:48px;font-weight:900;color:var(--dourado);animation:pop .5s ease;}
+  .rankbox{font-size:20px;background:rgba(0,0,0,.2);padding:10px 18px;border-radius:999px;font-weight:800;}
+  .streak{font-size:16px;color:var(--dourado);font-weight:800;}
+
+  .podium-num{font-size:64px;font-weight:900;color:var(--dourado);animation:pop .5s;}
+  .toast{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);
+    background:rgba(0,0,0,.55);padding:10px 18px;border-radius:999px;font-size:14px;
+    opacity:0;transition:opacity .3s;}
+  .toast.on{opacity:1;}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ENTRADA -->
+  <section class="screen on" id="s-join">
+    <div class="logo">
+      <span class="logo-badge"><img src="/static/logo-cfc.png" alt="Conselho Federal de Contabilidade" /></span>
+      <h1>Quiz CFC</h1>
+    </div>
+    <div class="card">
+      <input id="nick" maxlength="18" placeholder="Seu nome" autocomplete="off" />
+      <button class="btn" id="btn-join">Entrar no jogo</button>
+      <div class="hint">Use um nome que você reconheça no ranking.</div>
+    </div>
+  </section>
+
+  <!-- AGUARDANDO -->
+  <section class="screen" id="s-wait">
+    <div class="me" id="wait-name"></div>
+    <div class="pulse"></div>
+    <div class="sub">Você está dentro! 🎉<br/>Aguarde o apresentador iniciar…</div>
+  </section>
+
+  <!-- PERGUNTA -->
+  <section class="screen" id="s-question">
+    <div class="qhead">
+      <span id="q-pos">1/6</span>
+      <span id="q-ans">✋</span>
+    </div>
+    <div class="ptimer" id="q-ring">
+      <div class="ptimer-lbl">TEMPO</div>
+      <svg width="74" height="74"><circle cx="37" cy="37" r="29" stroke="rgba(255,255,255,.18)" stroke-width="7" fill="none"/>
+        <circle id="q-ring-fg" cx="37" cy="37" r="29" stroke="var(--dourado)" stroke-width="7" fill="none"
+          stroke-linecap="round" stroke-dasharray="182.2" stroke-dashoffset="0"/></svg>
+      <div class="ptimer-num" id="q-timer">20</div>
+    </div>
+    <div class="qtext-p" id="q-text">Pergunta…</div>
+    <div class="grid" id="opts"></div>
+  </section>
+
+  <!-- RESPONDIDO -->
+  <section class="screen" id="s-answered">
+    <div class="big">⏳</div>
+    <div class="verdict">Resposta enviada!</div>
+    <div class="sub">Aguarde o tempo acabar…</div>
+  </section>
+
+  <!-- RESULTADO -->
+  <section class="screen" id="s-reveal">
+    <div class="big" id="r-emoji">✅</div>
+    <div class="verdict" id="r-text">Acertou!</div>
+    <div class="pts" id="r-pts">+0</div>
+    <div class="streak" id="r-streak"></div>
+    <div class="rankbox" id="r-rank">—</div>
+  </section>
+
+  <!-- FIM -->
+  <section class="screen" id="s-end">
+    <div class="logo"><span class="logo-badge"><img src="/static/logo-cfc.png" alt="Conselho Federal de Contabilidade" /></span></div>
+    <div class="podium-num" id="e-rank">#1</div>
+    <div class="verdict" id="e-msg">Mandou bem!</div>
+    <div class="pts" id="e-score">0 pts</div>
+  </section>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+const SHAPES = ["▲","◆","●","■"];
+const $ = s => document.querySelector(s);
+let ws, pid=null, answered=false, timerInt=null;
+
+function show(id){
+  document.querySelectorAll('.screen').forEach(e=>e.classList.remove('on'));
+  $(id).classList.add('on');
+}
+function toast(msg){
+  const t=$('#toast'); t.textContent=msg; t.classList.add('on');
+  setTimeout(()=>t.classList.remove('on'),2200);
+}
+
+function connect(){
+  const proto = location.protocol==='https:'?'wss':'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws/play`);
+  ws.onopen = ()=>{ if($('#nick').dataset.sent) doJoin(); };
+  ws.onclose = ()=>{ toast('Conexão perdida. Recarregue a página.'); };
+  ws.onmessage = ev => handle(JSON.parse(ev.data));
+}
+
+function doJoin(){
+  const nick = $('#nick').value.trim();
+  if(!nick){ $('#nick').focus(); return; }
+  $('#nick').dataset.sent = "1";
+  if(ws && ws.readyState===1){
+    ws.send(JSON.stringify({type:'join', nickname:nick}));
+  }
+}
+
+$('#btn-join').onclick = ()=>{ if(!ws||ws.readyState!==1){connect();} doJoin(); };
+$('#nick').addEventListener('keydown', e=>{ if(e.key==='Enter') $('#btn-join').click(); });
+
+function buildOptions(opcoes){
+  const grid=$('#opts'); grid.innerHTML='';
+  opcoes.forEach((texto,i)=>{
+    const b=document.createElement('button');
+    b.className='opt';
+    const sh=document.createElement('span'); sh.className='shape'; sh.textContent=SHAPES[i]||'★';
+    const tx=document.createElement('span'); tx.className='otext'; tx.textContent=texto;
+    b.append(sh,tx);
+    b.onclick=()=>sendAnswer(i,b);
+    grid.appendChild(b);
+  });
+}
+function sendAnswer(i,btn){
+  if(answered) return;
+  answered=true;
+  document.querySelectorAll('.opt').forEach(o=>{ if(o!==btn) o.classList.add('dim'); });
+  ws.send(JSON.stringify({type:'answer', index:i}));
+}
+
+const PR=29, PC=2*Math.PI*PR;  // raio e circunferência do anel de tempo
+function startTimer(sec){
+  $('#q-timer').textContent=sec;
+  $('#q-ring-fg').style.strokeDashoffset=0;
+  $('#q-ring').classList.remove('low');
+  clearInterval(timerInt);
+  const t0=Date.now();
+  timerInt=setInterval(()=>{
+    const rem=Math.max(0,sec-(Date.now()-t0)/1000);
+    $('#q-timer').textContent=Math.ceil(rem);
+    $('#q-ring-fg').style.strokeDashoffset=(PC*(1-rem/sec)).toFixed(1);
+    const baixo = rem/sec<.3;
+    $('#q-ring-fg').style.stroke = baixo ? 'var(--vermelho)' : 'var(--dourado)';
+    $('#q-ring').classList.toggle('low', baixo && rem>0);
+    if(rem<=0){ clearInterval(timerInt); $('#q-ring').classList.remove('low'); }
+  },100);
+}
+
+function handle(m){
+  switch(m.type){
+    case 'joined':
+      pid=m.pid;
+      $('#wait-name').textContent=m.nickname;
+      show('#s-wait');
+      break;
+    case 'lobby':
+      show('#s-wait');
+      break;
+    case 'question':
+      answered=false;
+      $('#q-pos').textContent=`${m.index+1}/${m.total}`;
+      $('#q-ans').textContent='✋ responda';
+      $('#q-text').textContent=m.pergunta;
+      buildOptions(m.opcoes || Array.from({length:m.n_opcoes||0}, ()=>''));
+      startTimer(m.tempo);
+      show('#s-question');
+      break;
+    case 'answer_ack':
+      show('#s-answered');
+      break;
+    case 'reveal':
+      clearInterval(timerInt);
+      $('#q-ring').classList.remove('low');
+      const ok=m.acertou;
+      $('#r-emoji').textContent = ok?'✅':(m.sua_resposta===null?'⌛':'❌');
+      $('#r-text').textContent = ok?'Acertou!':(m.sua_resposta===null?'Tempo esgotado':'Não foi dessa vez');
+      $('#r-text').style.color = ok?'var(--verde2)':'var(--vermelho)';
+      $('#r-pts').textContent = (m.pontos>0?'+':'')+m.pontos;
+      $('#r-streak').textContent = (ok && m.streak>=2)?`🔥 ${m.streak} seguidas!`:'';
+      show('#s-reveal');
+      break;
+    case 'rank':
+      $('#r-rank').textContent = `Posição ${m.rank}º de ${m.total_jogadores}`;
+      break;
+    case 'game_over':
+      $('#e-rank').textContent = `#${m.rank}`;
+      $('#e-score').textContent = `${m.score} pts`;
+      $('#e-msg').textContent =
+        m.rank===1?'🏆 Você venceu!':m.rank<=3?'🥳 Pódio!':'Valeu por jogar!';
+      show('#s-end');
+      break;
+    case 'error':
+      toast(m.message);
+      break;
+  }
+}
+</script>
+</body>
+</html>
